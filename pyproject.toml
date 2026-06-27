@@ -56,6 +56,7 @@ line-length = 120
 
 [dependency-groups]
 dev = [
+    "ipykernel>=7.3.0",
     "ipython>=9.13.0",
 ]
 
