@@ -3,44 +3,47 @@ from resiliparse.extract.html2text import extract_plain_text
 from resiliparse.parse.encoding import detect_encoding
 import fasttext
 import re
-from pathlib import Path
+from enum import Enum
 from cs336_data.common import get_shared_assets_path
 
-_FASTTEXT_MODEL = None
+
+class ModelType(Enum):
+    LANG_CLASSIFIER = 1
+    NSFW_CLASSIFIER = 2
+    HATE_SPEECH_CLASSIFIER = 3
 
 
-def get_fasttext_model():
-    global _FASTTEXT_MODEL
+_FASTTEXT_MODELS = {}
 
-    if _FASTTEXT_MODEL is not None:
-        return _FASTTEXT_MODEL
 
-    model_path = get_shared_assets_path() / "classifiers" / "lid.176.bin"
+def get_fasttext_model(model_type: ModelType):
+    global _FASTTEXT_MODELS
+
+    if model_type in _FASTTEXT_MODELS:
+        return _FASTTEXT_MODELS[model_type]
+
+    model_path = get_shared_assets_path() / "classifiers"
+    match model_type:
+        case ModelType.LANG_CLASSIFIER:
+            model_path = model_path / "lid.176.bin"
+        case ModelType.NSFW_CLASSIFIER:
+            model_path = model_path / "dolma_fasttext_nsfw_jigsaw_model.bin"
+        case ModelType.HATE_SPEECH_CLASSIFIER:
+            model_path = model_path / "dolma_fasttext_hatespeech_jigsaw_model.bin"
+        case _:
+            # Fallback wildcard for safety
+            raise ValueError(f"Unknown model type: {model_type}")
+
     if not model_path.exists():
         raise FileNotFoundError(
-            f"fastText language identification model not found at {model_path}"
+            f"fastText model {model_type} not found at {model_path}"
         )
-    _FASTTEXT_MODEL = fasttext.load_model(str(model_path))
-    return _FASTTEXT_MODEL
+    _FASTTEXT_MODELS[model_type] = fasttext.load_model(str(model_path))
+    return _FASTTEXT_MODELS[model_type]
 
 
 def identify_language(text: str) -> tuple[str, float]:
-    cleaned_text = text.replace("\n", " ")
-    model = get_fasttext_model()
-    labels, probabilities = model.predict(cleaned_text, k=1)
-    if not labels:
-        raise ValueError(f"model.predict({cleaned_text}) returned no prediction")
-    if len(labels) != 1:
-        raise ValueError(
-            f"model.predict({cleaned_text}) unexpectedly did not return exactly one prediction: {labels}, {probabilities}"
-        )
-    label = labels[0]
-    score = float(probabilities[0])
-    if label.startswith("__label__"):
-        lang = label[len("__label__") :]
-    else:
-        lang = label
-    return lang, score
+    return compute_label_and_score(text.replace("\n", " "), ModelType.LANG_CLASSIFIER)
 
 
 def extract_text_from_warc(warc_file_path, n=10):
@@ -109,3 +112,28 @@ def mask_ips(text: str) -> tuple[str, int]:
 
     new_text = re.sub(pattern, repl, text)
     return new_text, count
+
+
+def classify_nsfw(text: str) -> tuple[str, float]:
+    return compute_label_and_score(text, ModelType.NSFW_CLASSIFIER)
+
+
+def classify_toxic_speech(text: str) -> tuple[str, float]:
+    return compute_label_and_score(text, ModelType.HATE_SPEECH_CLASSIFIER)
+
+
+def compute_label_and_score(text: str, model_type: ModelType):
+    model = get_fasttext_model(model_type)
+    labels, probabilities = model.predict(text)
+
+    if not labels:
+        raise ValueError(f"model.predict({text}) returned no prediction")
+    if len(labels) != 1:
+        raise ValueError(
+            f"model.predict({text}) unexpectedly did not return exactly one prediction: {labels}, {probabilities}"
+        )
+    label = labels[0]
+    score = float(probabilities[0])
+    if label.startswith("__label__"):
+        return label[len("__label__") :], score
+    return label, score
