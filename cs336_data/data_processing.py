@@ -2,6 +2,7 @@ from fastwarc.warc import ArchiveIterator, WarcRecordType
 from resiliparse.extract.html2text import extract_plain_text
 from resiliparse.parse.encoding import detect_encoding
 import fasttext
+import re
 from pathlib import Path
 from cs336_data.common import get_shared_assets_path
 
@@ -77,3 +78,34 @@ def extract_text_from_html_bytes(html_bytes: bytes) -> str:
 
     # Resiliparse extracts plain text directly from the byte string.
     return extract_plain_text(html_str)
+
+
+def mask_emails(text: str) -> tuple[str, int]:
+    # Matches typical email formats
+    pattern = r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"
+    new_text, count = re.subn(pattern, "|||EMAIL_ADDRESS|||", text)
+    return new_text, count
+
+
+def mask_phone_numbers(text: str) -> tuple[str, int]:
+    # Matches common US phone formats: e.g., 2831823829, (283)-182-3829, (283) 182 3829, 283-182-3829
+    pattern = r"(?:\+?1[\s.-]?)?(?:\(\d{3}\)|\b\d{3})[\s.-]?\d{3}[\s.-]?\d{4}\b"
+    new_text, count = re.subn(pattern, "|||PHONE_NUMBER|||", text)
+    return new_text, count
+
+
+def mask_ips(text: str) -> tuple[str, int]:
+    # Matches 4 numbers separated by dots
+    pattern = r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b"
+    count = 0
+
+    def repl(match):
+        nonlocal count
+        octets = match.group(0).split(".")
+        if all(0 <= int(octet) <= 255 for octet in octets):
+            count += 1
+            return "|||IP_ADDRESS|||"
+        return match.group(0)
+
+    new_text = re.sub(pattern, repl, text)
+    return new_text, count
