@@ -3,6 +3,8 @@ from resiliparse.extract.html2text import extract_plain_text
 from resiliparse.parse.encoding import detect_encoding
 import fasttext
 import re
+import nltk
+import numpy as np
 from enum import Enum
 from cs336_data.common import get_shared_assets_path
 
@@ -137,3 +139,40 @@ def compute_label_and_score(text: str, model_type: ModelType):
     if label.startswith("__label__"):
         return label[len("__label__") :], score
     return label, score
+
+
+def gopher_quality_filter(text: str) -> bool:
+    # Download the required tokenization models (only needed once).
+    nltk.download("punkt_tab", quiet=True)
+
+    lines = text.splitlines()
+    tokens = nltk.word_tokenize(text)
+    words = [t for t in tokens if any(char.isalpha() for char in t)]
+    if not words:
+        return False
+
+    # Contain less than 50 or more than 100,000 words.
+    words_count = len(words)
+    if words_count < 50 or words_count > 100_000:
+        return False
+
+    # Have a mean word length outside the range of 3 to 10 characters.
+    word_len_mean = np.mean([len(w) for w in words])
+    if word_len_mean < 3 or word_len_mean > 10:
+        return False
+
+    # Have more than 30% of lines ending with an ellipsis (“...”).
+    valid_lines = [line.strip() for line in lines if line.strip()]
+    if valid_lines:
+        ellipsis_lines = sum(
+            1 for line in valid_lines if line.endswith("...") or line.endswith("…")
+        )
+        if (ellipsis_lines / len(valid_lines)) > 0.30:
+            return False
+
+    # Contain less than 80% of words with at least one alphabetic character.
+    token_count = len(tokens)
+    if (words_count / token_count) < 0.80:
+        return False
+
+    return True
