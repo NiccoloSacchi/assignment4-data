@@ -12,7 +12,9 @@ from cs336_data.modal_utils import VOLUME_MOUNTS, app, build_image
 from cs336_data.wet_files import EnglishWetFiles
 
 
-@app.function(image=build_image(), volumes=VOLUME_MOUNTS, timeout=60 * 60 * 12, max_containers=128)
+@app.function(
+    image=build_image(), volumes=VOLUME_MOUNTS, timeout=60 * 60 * 12, max_containers=128
+)
 def extract_wiki_urls(shard: str) -> list[str]:
     dump_date = "20260501"
     tmp_dir = Path("/tmp/wiki")
@@ -23,7 +25,14 @@ def extract_wiki_urls(shard: str) -> list[str]:
     )
 
     print(f"[wiki] downloading {shard}", flush=True)
-    urllib.request.urlretrieve(f"https://dumps.wikimedia.org/enwiki/{dump_date}/{shard}", dump)
+    opener = urllib.request.build_opener()
+    opener.addheaders = [
+        ("User-Agent", "MyDataExtractionBot/1.0 (contact@example.com)")
+    ]
+    urllib.request.install_opener(opener)
+    urllib.request.urlretrieve(
+        f"https://dumps.wikimedia.org/enwiki/{dump_date}/{shard}", dump
+    )
     urls = []
     with bz2.open(dump, "rt", errors="ignore") as f:
         for line in f:
@@ -52,7 +61,9 @@ def download_offline_files(*, root_path: Path) -> None:
                 f"https://data.commoncrawl.org/crawl-data/CC-MAIN-2026-12/{kind}.paths.gz"
             ) as r:
                 first_path = gzip.decompress(r.read()).decode().splitlines()[0]
-            urllib.request.urlretrieve(f"https://data.commoncrawl.org/{first_path}", out)
+            urllib.request.urlretrieve(
+                f"https://data.commoncrawl.org/{first_path}", out
+            )
 
     for rel_path, url in [
         (
@@ -84,9 +95,16 @@ def main(offline_only: bool = False):
 
     dump_date = "20260501"
     base_url = f"https://dumps.wikimedia.org/enwiki/{dump_date}/"
-    html = urllib.request.urlopen(base_url).read().decode()
+    headers = {"User-Agent": "MyDataExtractionBot/1.0 Python-urllib"}
+    req = urllib.request.Request(base_url, headers=headers)
+    html = urllib.request.urlopen(req).read().decode()
     shards = sorted(
-        set(re.findall(rf"enwiki-{dump_date}-pages-articles-multistream[0-9]+\.xml-p[0-9]+p[0-9]+\.bz2", html))
+        set(
+            re.findall(
+                rf"enwiki-{dump_date}-pages-articles-multistream[0-9]+\.xml-p[0-9]+p[0-9]+\.bz2",
+                html,
+            )
+        )
     )
     wiki_out = root_path / "wiki/enwiki-20260501-extracted_urls.txt.gz"
     if not wiki_out.exists():

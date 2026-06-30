@@ -15,10 +15,15 @@ from warcio.warcwriter import WARCWriter
 
 from cs336_data.common import get_shared_assets_path
 from cs336_data.modal_utils import VOLUME_MOUNTS, app, build_image
+from cs336_data.data_processing import identify_language
 from furu import Furu
 
 BASE_URL = "https://data.commoncrawl.org/"
 
+
+def is_english(text: str):
+    predicted_language, score = identify_language(text)
+    return predicted_language == "en" and score > 0.7
 
 
 class _EnglishWetFile(Furu[Path]):
@@ -28,8 +33,10 @@ class _EnglishWetFile(Furu[Path]):
         output_path = self.data_dir / "data.warc.wet.gz"
 
         self.logger.info("Loading English language identifier")
-        is_english: Callable[[str], bool] = "TODO"
-        assert is_english != "TODO", "you need to implement is_english. we use probability >= 0.7 with https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.bin"
+        # is_english: Callable[[str], bool] = "TODO"
+        assert (
+            is_english != "TODO"
+        ), "you need to implement is_english. we use probability >= 0.7 with https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.bin"
 
         total_text = 0
         skipped_text = 0
@@ -80,7 +87,9 @@ class _EnglishWetFile(Furu[Path]):
         return get_shared_assets_path() / "furu"
 
 
-@app.function(image=build_image(), volumes=VOLUME_MOUNTS, timeout=60 * 60 * 12, max_containers=128)
+@app.function(
+    image=build_image(), volumes=VOLUME_MOUNTS, timeout=60 * 60 * 12, max_containers=128
+)
 def make_wet_file_on_modal(wet_file: _EnglishWetFile) -> Path:
     return wet_file.load_or_create()
 
@@ -102,10 +111,19 @@ class EnglishWetFiles(Furu[list[Path]]):
                 wet_paths,
                 has_header=False,
                 new_columns=["wet_path"],
-            ).sample(n=self.n_files, shuffle=True, seed=self.shuffle_seed, with_replacement=False)["wet_path"]
+            ).sample(
+                n=self.n_files,
+                shuffle=True,
+                seed=self.shuffle_seed,
+                with_replacement=False,
+            )[
+                "wet_path"
+            ]
         )
 
-        self.logger.info("Selected %d WET files for crawl %s", len(wet_urls), self.crawl_id)
+        self.logger.info(
+            "Selected %d WET files for crawl %s", len(wet_urls), self.crawl_id
+        )
 
         wet_files: list[_EnglishWetFile] = []
         for chunk_idx in range(0, len(wet_urls), self.group_size):
@@ -139,7 +157,9 @@ class EnglishWetFiles(Furu[list[Path]]):
                 self.logger.info("Replacing existing source link %s", source_link)
                 source_link.unlink()
             source_link.symlink_to(self.data_dir)
-            self.logger.info("Linked source data directory %s -> %s", source_link, self.data_dir)
+            self.logger.info(
+                "Linked source data directory %s -> %s", source_link, self.data_dir
+            )
 
             for wet_data_idx, wet_data_path in enumerate(wet_data_paths):
                 link_path = repo_path / f"{wet_data_idx:05d}-{wet_data_path.name}"
@@ -147,7 +167,12 @@ class EnglishWetFiles(Furu[list[Path]]):
                     self.logger.info("Replacing existing WET chunk link %s", link_path)
                     link_path.unlink()
                 link_path.symlink_to(wet_data_path)
-                self.logger.info("Linked WET chunk %d: %s -> %s", wet_data_idx, link_path, wet_data_path)
+                self.logger.info(
+                    "Linked WET chunk %d: %s -> %s",
+                    wet_data_idx,
+                    link_path,
+                    wet_data_path,
+                )
 
         self.logger.info("Finished creating %d English WET files", len(wet_data_paths))
         return wet_data_paths
